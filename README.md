@@ -27,7 +27,7 @@ The core insight underneath all of it: the bottleneck in most product orgs isn't
 | [`prds/`](prds/) | A PRD template built around a "Validation Before Build" gate and a "Champagne Feedback" launch step — designed to stop you from spending three weeks on a bet nobody asked for. |
 | [`pr-review/`](pr-review/) | A 4-lens PR review template for product people: user experience, design taste, AI-assisted code findings, and analytics coverage — in that priority order. |
 | [`task-tracking/`](task-tracking/) | Two file formats (`todo.md`, `lessons.md`) that give an AI coding assistant persistent memory of what's active, what's decided, and what's already gone wrong once. |
-| [`skills/`](skills/) | Claude Code skills/commands: a 6-lens feature-branch audit suite (production readiness, UX, user flow, copy, integrations, observability) for POC-to-engineering handoffs, a Rails `schema.rb` cleanup tool, and a work-portfolio keeper (capture entries, catch staleness, scrub for sensitive info before sharing). |
+| [`skills/`](skills/) | Claude Code skills/commands: a 6-lens feature-branch audit suite (production readiness, UX, user flow, copy, integrations, observability) for POC-to-engineering handoffs, a Rails `schema.rb` cleanup tool, and a work-portfolio keeper — so you're not reconstructing a promo case, a LinkedIn update, or a personal site from memory six months after you actually did the work. |
 
 ## How to use it
 

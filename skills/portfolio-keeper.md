@@ -1,11 +1,23 @@
 ---
 name: portfolio-keeper
-description: "Keep a personal work/career portfolio up to date, flag when it's gone stale relative to actual finished work, and audit it for sensitive info before any part of it is shared outside your own machine (recruiter, personal site, LinkedIn, public repo). Trigger on: 'log this to my portfolio', 'add this to my portfolio', 'update my portfolio', 'is my portfolio stale', 'portfolio audit', 'prep my portfolio for sharing', 'is my portfolio safe to share', 'redact my portfolio', 'scrub my portfolio'."
+description: "Keep a personal work/career portfolio up to date, so you're never stuck trying to reconstruct months of shipped work from memory when a promo case, a LinkedIn update, a personal site, or a job search suddenly needs it. Flags staleness relative to actual finished work, and audits/redacts sensitive info before anything leaves your machine. Trigger on: 'log this to my portfolio', 'add this to my portfolio', 'update my portfolio', 'is my portfolio stale', 'portfolio audit', 'prep my portfolio for sharing', 'is my portfolio safe to share', 'redact my portfolio', 'scrub my portfolio', 'help me update my LinkedIn', 'build my promo case', 'what have I shipped this quarter', 'what should go on my personal site'."
 ---
 
 # Portfolio Keeper
 
 Keeps a running work/career portfolio file current and safe to share. Three independent jobs — run whichever one the user is asking for.
+
+## Why this exists
+
+The work worth bragging about almost always happens mid-sprint, not at review time. Three months later, when a promo packet, a LinkedIn update, a personal site refresh, or a job search actually needs the details, most of it is gone — the sharp metric, the exact customer quote, the clever workaround, the real scope of what you owned. Reconstructed from memory, it comes out vague ("helped ship a few features") instead of specific ("owned X end-to-end, cut Y by Z%").
+
+This skill exists to close that gap: capture the entry while it's still fresh, so when one of these moments hits, you're pulling from a running record instead of trying to remember:
+
+- **A promotion case** — concrete, dated evidence of scope and impact, not a scramble the week before calibration
+- **LinkedIn / a personal site** — a backlog of real accomplishments to draw from, already in your own words
+- **A job search** — interview stories and a resume that don't depend on remembering what happened two jobs ago
+
+The catch: the same detail that makes an entry good evidence — real numbers, real customer names, real internal context — is often exactly what shouldn't leave the building unredacted. That's why Workflow 3 exists: "documented" and "safe to share" are two different steps, not one.
 
 ## What this skill does
 
