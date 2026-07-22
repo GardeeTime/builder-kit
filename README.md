@@ -14,11 +14,13 @@ None of it is tied to any one company or stack — it's genericized so you can g
 
 1. **Think out loud first.** Voice mode, a notes app, whatever — get the shape of the problem out of your head before you write anything down formally.
 2. **Draft a PRD, then pressure-test it with AI.** Use [`prds/prd-template.md`](prds/prd-template.md) — it forces a validation step *before* anyone writes code.
-3. **Interrogate the codebase before you touch it.** Ask your AI assistant what already exists, where things live, and what patterns to follow — before assuming you need to build something new.
-4. **Read the plan critically.** If your tool has a plan mode, use it — and actually read the plan before approving it. This is the gate that catches bad assumptions before they become bad code.
-5. **Test locally, then hand off through a real PR.** Use [`pr-review/product-lens-pr-review.md`](pr-review/product-lens-pr-review.md) to review it — or have it reviewed — from a product lens, not just a code-quality one.
+3. **Map the blast radius.** Once the PRD's approved, run [`blast-radius-gate`](skills/blast-radius-gate.md) — it maps what else shares the code you're about to touch and decides whether an engineer needs to pair with you *before* you write an implementation plan, not after.
+4. **Interrogate the codebase, then read the plan like you mean it.** [`pre-code-gate`](skills/pre-code-gate.md) is the actual mechanism behind both of those — a fixed interrogation checklist, a plan-critique rubric, and an independent adversarial pass that attacks your plan's weakest assumption before you approve it.
+5. **Lock your tests to the spec.** [`spec-locked-tests`](skills/spec-locked-tests.md) turns the PRD's requirements into failing tests *before* implementation starts, so the same AI that writes the code can't also quietly write tests that agree with its own bugs.
+6. **Build, then review it like a product person, not just a linter.** [`pr-review/product-lens-pr-review.md`](pr-review/product-lens-pr-review.md) covers UX and code; [`decision-mining-ledger`](skills/decision-mining-ledger.md) catches the product decisions buried in the implementation logic that a diff alone won't show you.
+7. **Hand off for real, not just "LGTM."** [`pre-merge-handoff-gate`](skills/pre-merge-handoff-gate.md) checks whether the process above actually happened, and gets a real ownership contract signed with whoever inherits this next.
 
-The core insight underneath all of it: the bottleneck in most product orgs isn't ideas, it's the time between "here's what I think we should build" and "here's what happened when users touched it." Every piece of this kit exists to shrink that gap.
+The core insight underneath all of it: the bottleneck in most product orgs isn't ideas, it's the time between "here's what I think we should build" and "here's what happened when users touched it." Every piece of this kit exists to shrink that gap — see [`case-study/`](case-study/) for one small feature walked through the whole pipeline, including the part where a step got skipped and the bug shipped anyway.
 
 ## What's inside
 
@@ -27,7 +29,9 @@ The core insight underneath all of it: the bottleneck in most product orgs isn't
 | [`prds/`](prds/) | A PRD template built around a "Validation Before Build" gate and a "Champagne Feedback" launch step — designed to stop you from spending three weeks on a bet nobody asked for. |
 | [`pr-review/`](pr-review/) | A 4-lens PR review template for product people: user experience, design taste, AI-assisted code findings, and analytics coverage — in that priority order. |
 | [`task-tracking/`](task-tracking/) | Two file formats (`todo.md`, `lessons.md`) that give an AI coding assistant persistent memory of what's active, what's decided, and what's already gone wrong once. |
-| [`skills/`](skills/) | Claude Code skills/commands: a 6-lens feature-branch audit suite (production readiness, UX, user flow, copy, integrations, observability) for POC-to-engineering handoffs, a Rails `schema.rb` cleanup tool, and a work-portfolio keeper — so you're not reconstructing a promo case, a LinkedIn update, or a personal site from memory six months after you actually did the work. |
+| [`skills/`](skills/) | Claude Code skills/commands. Pre-build gates: `pre-code-gate` (codebase interrogation + plan critique + adversarial pushback), `blast-radius-gate` (lateral-risk mapping + pairing rule), `spec-locked-tests` (tests from the spec, before the code exists to copy from). Post-build: `decision-mining-ledger` (surfaces product decisions buried in a diff), `pre-merge-handoff-gate` (conformance check + ownership contract), and the `feature-audit` suite — now 7 audits, including `red-team`, which actually attacks the running app instead of reading it. Plus `schema-scrub` and a work-portfolio keeper — so you're not reconstructing a promo case, a LinkedIn update, or a personal site from memory six months later. |
+| [`case-study/`](case-study/) | One small feature, walked through the whole pipeline — PRD → blast-radius/pre-code-gate → PR review → retro — using the exact diff seeded in `demo/`. Includes the honest version: a gate that got skipped, and the bug that shipped because of it. |
+| [`demo/`](demo/) | A tiny, real, runnable feature branch (`./setup.sh`, no `npm install`) with a genuine seeded bug. Point any skill at it and get real output in under 2 minutes — no PRD or codebase of your own required. |
 
 ## How to use it
 

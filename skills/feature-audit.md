@@ -43,11 +43,11 @@ Then proceed to Step 1.
 
 When triggered, ask the user which audit set to run:
 
-- **full** — all six audits (best for handoff prep)
-- **code** — production readiness + integration contracts + observability
+- **full** — all seven audits (best for handoff prep)
+- **code** — production readiness + integration contracts + observability + red team
 - **experience** — UX/design + user flow + copy/content
 - **quick** — production readiness only (fastest sanity check)
-- Or name specific audits: `production`, `ux`, `flow`, `copy`, `integration`, `observability`
+- Or name specific audits: `production`, `ux`, `flow`, `copy`, `integration`, `observability`, `red-team`
 
 If the user just says "audit this" or "is this ready," default to **full**.
 
@@ -63,8 +63,9 @@ Read each selected prompt file from `~/.claude/commands/prompts/`:
 | Copy & Content | `~/.claude/commands/prompts/copy-content.md` | Terminology, button labels, error messages, help text, empty states, grammar |
 | Integration Contracts | `~/.claude/commands/prompts/integration-contracts.md` | Frontend↔backend, backend↔third-party, webhooks, timeouts, data mapping, type safety |
 | Observability | `~/.claude/commands/prompts/observability.md` | Logging, error tracking, traceability, metrics, alerting, background job visibility |
+| Red Team | `~/.claude/commands/prompts/red-team.md` | Actually attacks the running app instead of reading it — replay, double-submit, concurrent races, tenant/ID substitution, malformed payloads, client-side tampering |
 
-**Phase 1 audits are read-only and independent — run them in parallel using the Agent tool.** Spawn one agent per selected audit, each reading its own prompt file and executing Phase 1 only. This is critical for performance; sequential execution is unnecessarily slow.
+**Phase 1 audits are read-only (except Red Team — see its own file), independent, and run in a fresh context — never in the main conversation that built the feature.** Spawn one agent per selected audit via the Agent tool, and hand each one ONLY its own prompt file plus `git diff main..HEAD` / codebase read access — not the PRD, not `todo.md`, not the conversation that built the feature. An auditor that inherits the same chat history that produced the code inherits the same blind spots a fresh reader wouldn't have. Frame the mandate adversarially in the spawn prompt — the agent's job is to find the reason this should NOT ship, not to confirm it's fine. This matters for two reasons: it's the only way to run audits in parallel (performance), and it's the only way to keep an audit honest instead of quietly agreeing with the plan that produced the code (rigor).
 
 When consolidating results in Step 3, present findings in this logical order:
 1. Production readiness (structural foundation)
@@ -73,8 +74,9 @@ When consolidating results in Step 3, present findings in this logical order:
 4. Copy & content (user-facing text)
 5. Integration contracts (API boundaries)
 6. Observability (debuggability)
+7. Red team (proven-by-execution — surfaces last since it validates or extends what the static audits already flagged)
 
-Every audit is Phase 1 only on the first pass — do NOT fix anything yet.
+Every audit is Phase 1 only on the first pass, except Red Team which necessarily executes the app in Phase 1 (see its own Safety Notes) — do NOT fix anything yet.
 
 ## Step 3: Consolidate
 
@@ -87,7 +89,7 @@ After all selected audits complete Phase 1, produce a **single consolidated repo
 
 | # | Severity | Audit | Area | File:Line | Issue | Fix Approach | Effort |
 
-Where Audit is tagged like [Prod], [UX], [Flow], [Copy], [Integration], [Obs].
+Where Audit is tagged like [Prod], [UX], [Flow], [Copy], [Integration], [Obs], [RedTeam].
 Sort: MUST FIX → SHOULD FIX → NICE TO HAVE.
 
 5. **Conflicting Recommendations** — if two audits disagree on approach, call it out
@@ -124,7 +126,7 @@ Once the user approves, work through fixes following the Phase 2 instructions in
 
 These apply across ALL audits:
 
-- **Phase 1 is READ ONLY.** Do not modify any files during the audit phase.
+- **Phase 1 is READ ONLY, with one named exception.** Do not modify any files during the audit phase — except Red Team's Phase 1, which requires actually booting and executing the app to attack it. "Read only" there means no editing application source files, not no execution; see `skills/prompts/red-team.md` for the exact boundary.
 - **Do not amend, squash, or rebase existing commits.** All fix commits go on top.
 - **Never combine multiple fixes in one commit.**
 - **Don't refactor working code for style.** Focus on correctness, safety, and maintainability.

@@ -1,6 +1,6 @@
 ---
 name: portfolio-keeper
-description: "Keep a personal work/career portfolio up to date, so you're never stuck trying to reconstruct months of shipped work from memory when a promo case, a LinkedIn update, a personal site, or a job search suddenly needs it. Flags staleness relative to actual finished work, and audits/redacts sensitive info before anything leaves your machine. Trigger on: 'log this to my portfolio', 'add this to my portfolio', 'update my portfolio', 'is my portfolio stale', 'portfolio audit', 'prep my portfolio for sharing', 'is my portfolio safe to share', 'redact my portfolio', 'scrub my portfolio', 'help me update my LinkedIn', 'build my promo case', 'what have I shipped this quarter', 'what should go on my personal site'."
+description: "Keep a personal work/career portfolio up to date, so you're never stuck trying to reconstruct months of shipped work from memory when a promo case, a LinkedIn update, a personal site, or a job search suddenly needs it. Flags staleness relative to actual finished work, audits/redacts sensitive info before anything leaves your machine, and can upgrade a claim from a self-reported story into a verified proof chain with a calibration track record. Trigger on: 'log this to my portfolio', 'add this to my portfolio', 'update my portfolio', 'is my portfolio stale', 'portfolio audit', 'prep my portfolio for sharing', 'is my portfolio safe to share', 'redact my portfolio', 'scrub my portfolio', 'help me update my LinkedIn', 'build my promo case', 'what have I shipped this quarter', 'what should go on my personal site', 'verify my portfolio', 'build my track record', 'how good have my predictions been'."
 ---
 
 # Portfolio Keeper
@@ -24,6 +24,7 @@ The catch: the same detail that makes an entry good evidence — real numbers, r
 1. **Capture** — log a finished piece of work as a new entry, in a consistent format.
 2. **Freshness check** — flag when the portfolio hasn't been updated relative to work that's actually shipped.
 3. **Sharing scrub** — audit entries for information that shouldn't leave your machine, and produce a redacted export that's actually safe to hand to someone else.
+4. **Verified evidence & calibration** — upgrade an entry from a self-reported story into a proof chain (PRD → merged PR → real metric), and track how well your own predictions have actually called it over time.
 
 ## File conventions
 
@@ -87,9 +88,30 @@ Only list flagged entries — don't relist clean ones. End with a summary: how m
 - Re-run the Phase 1 audit against the export before calling it done.
 - Remind the user: the export is only as safe as the last audit. Re-run this before every new share, not just the first one — a portfolio changes, and yesterday's clean entry can pick up something sensitive on the next edit.
 
+## Workflow 4: Verified Evidence & Calibration Ledger
+
+Trigger phrases: "verify my portfolio," "build my track record," "add proof to this entry," "how good have my predictions been."
+
+A Situation/Action/Result entry is self-reported — exactly the format a skeptical promo committee, hiring manager, or your own future self already discounts by default. This workflow upgrades an entry from a claim into something a reader can actually click through and check.
+
+1. **Assemble the proof chain.** For the initiative behind an entry, find and link: the originating PRD (if one exists — see [`prds/prd-template.md`](../prds/prd-template.md)), the merged PR(s) across whichever repos touched it, and — if the PRD had a "Success Looks Like" metric — a real query or screenshot comparing that metric before vs. after the ship date.
+2. **Flag what's missing, don't fabricate it.** If there's no PRD, no merged PR, or the metric was never actually pulled (just assumed to have gone well), say so explicitly on the entry rather than quietly treating the claim as proven. An entry marked "metric not verified" is more credible long-term than one silently overstated.
+3. **Score it against its own prediction.** If the originating PRD had a stated success/kill signal, mark the outcome: `Hit` (metric met target), `Partial` (moved the right direction, missed the target), `Miss` (target metric didn't move, or the kill signal fired), or `Not measured`.
+4. **Roll it up into a calibration summary.** Across enough entries, this becomes an actual track record: how often did you correctly predict what would work before building it? That calibration — not the raw count of things shipped — is the harder-to-fake signal of senior product judgment. Keep a running summary line at the top of the portfolio file, separate from individual entries, e.g. "14 bets: 8 hit, 3 partial, 2 miss, 1 not measured."
+
+### Entry format addition
+
+Add these two fields to any entry that's gone through this workflow:
+
+```markdown
+**Proof chain:** PRD: [link] | PR(s): [link(s)] | Metric: [before] → [after], measured [date]
+**Outcome vs. prediction:** Hit | Partial | Miss | Not measured
+```
+
 ## Safety notes
 
 - This file is a personal record, not a deliverable. Never commit it (or an unredacted export) to a public repo. If it's ever tracked in a git repo, confirm `.gitignore` covers it.
 - Never mark an entry `Cleared for external sharing` on the user's behalf — that's always their call.
 - If you find live credentials, API keys, or tokens anywhere in the file, stop and flag it immediately rather than proceeding with the rest of the audit.
 - Treat every new entry as `Needs review` until the user says otherwise.
+- Never fabricate a metric or a link to make a proof chain look complete. An honestly incomplete entry (marked `Not measured`) is more valuable long-term than a fabricated one — if you can't verify something, say so instead of guessing.
