@@ -9,7 +9,7 @@ Runs a read-only pass over a diff to find the implicit **product** decisions bur
 
 ## Why this exists
 
-`pr-review/product-lens-pr-review.md` already has a section for AI-assisted technical findings — Section 3, Code & Technical Observations. That section catches bugs, missing error handling, performance issues. What it does not do, and was never designed to do, is notice the decisions that aren't bugs at all: code that runs fine, does something reasonable, and quietly made a product call along the way.
+`skills/product-lens-pr-review.md` already has a section for AI-assisted technical findings — Section 3, Code & Technical Observations. That section catches bugs, missing error handling, performance issues. What it does not do, and was never designed to do, is notice the decisions that aren't bugs at all: code that runs fine, does something reasonable, and quietly made a product call along the way.
 
 `if (!customer.email) return;` is not a bug. It compiles, it doesn't crash, tests probably pass. It is also a product decision — "customers without an email are silently excluded from this flow" — and nobody asked the PM if that's what should happen. A non-technical reviewer scanning the diff has no way to even notice that line made a choice, let alone weigh in on it. Multiply that by every default value, fallback, and silently-handled edge case in a typical PR, and a lot of product surface area ships without anyone who owns the product actually seeing it.
 

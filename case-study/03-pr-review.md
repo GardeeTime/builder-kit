@@ -1,6 +1,6 @@
 # PR Review — Mark Task Complete
 
-Applying [`product-lens-pr-review.md`](../pr-review/product-lens-pr-review.md) and [`decision-mining-ledger.md`](../skills/decision-mining-ledger.md) to the actual diff in [`../demo/after/server.js`](../demo/after/server.js) — the same diff `demo/setup.sh` checks out as `feature/complete-task`.
+Applying [`product-lens-pr-review.md`](../skills/product-lens-pr-review.md) and [`decision-mining-ledger.md`](../skills/decision-mining-ledger.md) to the actual diff in [`../demo/after/server.js`](../demo/after/server.js) — the same diff `demo/setup.sh` checks out as `feature/complete-task`.
 
 ---
 
