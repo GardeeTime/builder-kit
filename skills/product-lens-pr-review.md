@@ -56,6 +56,18 @@ If you keep a team review template (`[TEAM_TEMPLATE]`), read it too. **This skil
 
 Note but don't stop for: a linked PR already merged (its diff is context, not review surface), or a PR stacked on another unmerged PR (review the base first, and say you're doing that).
 
+### Scale the pipeline to the diff
+
+Step 1's `--json` output already handed you `additions`, `deletions`, and `changedFiles`. Use them — **per PR**, not per ticket. One ticket routinely pairs a 12-line front-end tweak with a 600-line back-end change, and each takes its own path.
+
+**Under roughly 50 changed lines across a handful of files, take the short path:** read the diff yourself and skip Steps 2 and 4. A diff that small fits in your context with room to spare, and reading it *is* the verification — an engine that reports a finding plus a verifier that re-opens the file to confirm it is three agents doing what one careful read already did. Sections 1, 2, and 4 run unchanged. Step 5 still applies to anything you'd call blocking; that stage's value doesn't scale with diff size.
+
+**Small is not the same as low-risk, and the short path is not a lower bar.** A one-line timezone change is exactly the shape of bug that costs real customers real money. You aren't skipping the scrutiny — you're doing it yourself instead of delegating it. Hold the same standard.
+
+**Run the full pipeline regardless of size** when the diff touches a migration, auth, money, anything that sends to customers, segmentation logic, cross-tenant reach, or a flag about to flip. There a missed finding costs more than five subagents ever will.
+
+Say which path you took in the internal block. A review that quietly skipped the engine reads exactly like one that ran it.
+
 ## Step 2: Run the finding engine (one subagent per repo, in parallel)
 
 You need a senior-engineer code-review prompt. If you have the Superpowers plugin installed, invoke `superpowers:requesting-code-review` and use the template it carries, or resolve the file directly — never hardcode the version directory, it changes on every update:
@@ -101,7 +113,7 @@ Survivors go to Step 4. Nothing reaches the review straight from here.
 
 The engine's `Confidence: NN` is self-scored — the same pass that generated a finding also graded it. **That is not verification.** The pass that hallucinates a finding will happily score it 95.
 
-Dispatch one cheap subagent per surviving finding, in parallel. Give it **only** the claim, the `file:line`, and the pinned SHA. Do not pass the engine's reasoning, its confidence score, or its severity — a verifier shown the argument will confirm the argument.
+Dispatch one subagent per surviving finding, in parallel. Give it **only** the claim, the `file:line`, and the pinned SHA. Do not pass the engine's reasoning, its confidence score, or its severity — a verifier shown the argument will confirm the argument.
 
 > Open `<file>` at commit `<HEAD_SHA>` and read the code around line `<line>`, plus whatever it calls, until you can answer.
 >
@@ -157,7 +169,8 @@ The draft you show opens with this. It is not part of the review body and is str
 
 ```
 --- FOR YOU, NOT POSTED ---
-Engine merge verdict:  <Yes | No | With fixes> — <the engine's reasoning, verbatim>
+Path:                  <full pipeline | short — <n> lines, read directly, no engine>
+Engine merge verdict:  <Yes | No | With fixes> — <the engine's reasoning, verbatim>   (n/a on the short path)
 Branch actually run:   <yes, and what I clicked | no — diff only>
 Findings dropped:      <n> failed verification — <one line each: the claim, then what the verifier found instead>
 Contested blockers:    <finding> — 1 of 2 refuters disagreed: <their reasoning>
@@ -165,7 +178,7 @@ Blockers unattacked:   <n — only if the Step 5 cap was hit>
 ---
 ```
 
-Every line is something the reviewer needs in order to weigh approval and cannot get from the posted review. The dropped-findings line is the audit trail on Step 4 — if it's long, distrust the review, not the PR.
+Every line is something the reviewer needs in order to weigh approval and cannot get from the posted review. The dropped-findings line is the audit trail on Step 4 — if it's long, distrust the review, not the PR. `Path:` is the one that keeps the short path honest: a small-diff review has to say it was small, not pass for a full run.
 
 ## Section 1: Product Experience Review (Primary Lens)
 
@@ -296,7 +309,8 @@ On a multi-repo ticket, post per-repo comments scoped to that repo's changes —
 ## Global Rules
 
 - **Start on trigger.** Don't ask permission to begin, don't describe the pipeline before running it. The gates are at the end.
-- **Nothing reaches the PR unverified.** Every posted finding survived an independent read of the code at the cited line (Step 4); every `[Blocks merge]` finding also survived two refuters (Step 5). Self-reported engine confidence is not verification.
+- **Nothing reaches the PR unverified.** Every posted finding survived an independent read of the code at the cited line — Step 4's verifier on the full pipeline, your own read on the short path. Every `[Blocks merge]` finding also survived two refuters (Step 5), on either path. Self-reported engine confidence is not verification.
+- **Match the pipeline to the diff, and say which one you ran.** Five subagents on a 12-line copy change is heavy-handedness this skill is meant to avoid; the full pipeline on a migration is the point of it. Either way the internal block names the path.
 - **Never post or approve without its own explicit yes.** Two gates, no inference. Approval is a named human's sign-off on someone else's work; it isn't yours to grant by implication. (This rule is here because it was learned the hard way — a pair of stacked PRs approved without a go, both of which had to be dismissed.)
 - **The merge verdict goes to your human partner, never to GitHub.** Always.
 - **Never claim more verification than happened.** If you read the diff but didn't run the branch, the review must not imply a click-through, and the internal block must say `no — diff only`.
