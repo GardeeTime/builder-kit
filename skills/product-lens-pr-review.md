@@ -24,6 +24,7 @@ This file ships with placeholders. Fill them in once, in your own copy:
 | `[YOUR_ANALYTICS]` | Your analytics tool and the path to your event catalog, if you keep one. |
 | `[STRATEGIC_FEATURES]` | The bets where you always want funnel-level tracking. |
 | `[TEAM_TEMPLATE]` | Path to your team's own review template, if one exists. Delete the reference if not. |
+| `[YOUR_HANDLE]` | The reviewer's GitHub login, used to find their own prior reviews on a re-review. |
 
 Everything else works as written.
 
@@ -31,7 +32,7 @@ Everything else works as written.
 
 A general code-reviewer subagent is a good **finding engine** — it reads a commit range with a senior-engineer prompt and returns severity-ranked findings. But those prompts are written for reviewing *your own* in-progress work. They have no opinion about user experience, design consistency, analytics coverage, or who is qualified to sign off. They also end with a "ready to merge" verdict, which is the wrong conclusion for a product reviewer to post on someone else's work.
 
-This skill wraps that engine in three things it doesn't have: **verification** (an independent reader re-opens the code behind every finding, and merge-blockers face two agents trying to refute them), a **product lens** nobody else on the PR is applying, and a **delivery contract** — one triaged list, anchored to the lines it's about, behind two explicit human gates.
+This skill wraps that engine in three things it doesn't have: **verification** (an independent reader re-opens the code behind every finding, and merge-blockers face two agents trying to refute them), a **product lens** nobody else on the PR is applying, and a **delivery contract** — one triaged list, anchored to the lines it's about, inside a length budget, behind explicit human gates.
 
 ## Step 1: Gather every PR on the ticket
 
@@ -48,11 +49,24 @@ gh pr view <N> --repo <org>/<repo> --json title,body,baseRefOid,headRefOid,files
 gh pr diff <N> --repo <org>/<repo>
 ```
 
-Record `baseRefOid` / `headRefOid` per PR — those pin the review to a specific range rather than a moving branch. Every later step cites that SHA.
+Record `baseRefOid` / `headRefOid` per PR — those pin the review to a specific range rather than a moving branch. Every later step cites that SHA. **Fail fast here:** confirm each ref resolves and each diff is non-empty before spawning anything. A bad ref or an empty diff should die in Step 1, not inside three parallel subagents.
 
 If you keep a team review template (`[TEAM_TEMPLATE]`), read it too. **This skill owns the process** — ordering, filtering, verification, labeling, delivery, gating. A team template supplements it with local specifics. Where the two disagree on process, this file wins.
 
 Note but don't stop for: a linked PR already merged (its diff is context, not review surface), or a PR stacked on another unmerged PR (review the base first, and say so).
+
+### Which round is this? Ask before reading anything
+
+Check for the reviewer's own prior reviews before pinning a range — the answer changes the range, the engine's brief, and the shape of the output.
+
+```bash
+gh api repos/<org>/<repo>/pulls/<N>/reviews \
+  --jq '.[] | select(.user.login=="[YOUR_HANDLE]") | {id, state, submitted_at, commit_id}'
+gh api repos/<org>/<repo>/pulls/<N>/comments \
+  --jq '.[] | {id, path, line, user: .user.login, in_reply_to: .in_reply_to_id, body}'
+```
+
+No prior review (or only a dismissed rubber stamp) → **round 1: the full pipeline below.** A prior review carrying a `commit_id` → **round N: read the re-review section before Step 2.** That `commit_id` is the SHA the reviewer last looked at, and the round-N range is `<that commit_id>..<headRefOid>`, not `base..head`.
 
 ### Scale the pipeline to the diff
 
@@ -91,13 +105,17 @@ Append to the engine's prompt:
 > `Confidence: NN` — 0-100, how confident you are that this issue is real.
 > `Evidence: <file>:<line>` — the single most specific line in the diff that demonstrates it, followed by a short quote of that line.
 >
+> Also report behavior in the diff the ticket never asked for — added surface, extra options, speculative configuration. Scope creep is a product decision nobody made.
+>
 > Keep your Strengths section to two sentences. It feeds a summary that has a hard length budget.
 >
 > If you could not establish a finding by reading the code — it depends on runtime behavior, real data shape, or a file outside this diff — write `Confidence: unverifiable` and state what you would need to check. Do not assert it as fact.
+>
+> Your entire report must be under 600 words. The budget forces ranking; do not spend it on Minor findings if Critical ones exist.
 
 **Start these two at the same time as the engine, not after it.** Neither depends on its output, and sequencing them behind it is pure added wall-clock:
 
-- **The decisions pass.** One narrow subagent looking for code that runs correctly and quietly made a product call. The engine will never report this class — there's no bug. `plan = row.plan || 'free'` isn't broken; it's a decision nobody asked the product owner about. Have it look for: default values on missing input, silent skips or drops of invalid data, fallback chains, tie-breaking and dedup strategy, silent clamping or coercion, swallowed errors resolving to an empty result, partial-failure handling in batches, magic-number thresholds and limits, and the behavior of whoever's left on the ungated path of a feature flag. Ask for **only the 3-5 that genuinely need a product call** — where the alternative is something a customer would notice. This category is where silent-fallback data loss comes from: a render fails, the code falls back to a default, an autosave writes the default over real user data, and no reviewer saw a bug because there wasn't one.
+- **The decisions pass.** One narrow subagent looking for places the diff **changes what a user can do, see, or accomplish — especially where it shrinks or removes something that works today.** Mechanisms to scan: default values on missing input, silent skips or drops of invalid data, fallback chains, tie-breaking and dedup strategy, silent clamping or coercion, swallowed errors resolving to an empty result, partial-failure handling in batches, magic-number thresholds and limits, and the behavior of whoever's left on the ungated path of a feature flag. But mechanism alone doesn't qualify: return **only decisions where a customer would notice the difference, 0 to 3 of them, and zero is a normal answer.** For each, four lines and no essay — the condition, what the code does, the named alternative, and what ships if nobody intervenes. This category is where silent-fallback data loss comes from: a render fails, the code falls back to a default, an autosave writes the default over real user data, and no reviewer saw a bug because there wasn't one.
 - **The phantom-event checks.** The `git log -S` sweep from Lens 4. Pure shell, no reason to wait.
 
 The engine's context holds the diff; only findings come back. Don't also read the full diff yourself — you need your context for the lenses.
@@ -131,6 +149,8 @@ Dispatch one subagent per surviving finding, in parallel. Give it **only** the c
 > - `CAN'T TELL FROM CODE` — deciding needs runtime behavior, real data shape, or a file that isn't in this repo. State what you'd need.
 >
 > Do not evaluate whether the issue matters, and do not soften a `NOT SUPPORTED` into a maybe. You are checking one fact.
+>
+> If a kill switch, a forced-null variable, or a flag that ships off makes this code path unreachable in production, that is `NOT SUPPORTED` — name the switch and the line.
 
 | Verdict | What happens |
 |---|---|
@@ -150,6 +170,8 @@ For each finding you'd label `[Blocks merge]` — and only those — dispatch **
 
 > Below is a claim about this PR that survived a first-pass verification. Your job is to refute it: find the reason it is wrong, overstated, or already handled. Look for guards upstream of the cited line, existing validation, a caller that never passes the problematic input, a framework or library default that covers it, or a test that already pins the behavior.
 >
+> **Check reachability first, before anything else: can this code path execute in production at all?** Look for a kill switch or feature flag that disables it, a config value forced to a constant that makes the branch dead, an entry point no route or caller reaches, and a variable pinned to null or false upstream of the cited line. Unreachable in production is a refutation — say which switch or line makes it so.
+>
 > Claim: "`<the finding>`" at `<file>:<line>`, commit `<HEAD_SHA>`.
 >
 > Return `refuted: true|false`, the code you based it on, and one sentence of reasoning. **If you cannot establish it either way, return `refuted: true`** — the bar for telling someone to stop shipping is high, and a claim you can't confirm doesn't clear it.
@@ -162,35 +184,97 @@ For each finding you'd label `[Blocks merge]` — and only those — dispatch **
 
 **Cap: the top 4 blockers by user impact.** If there are more than four, attack four and say in the internal block how many went unattacked. And more than four genuine blockers is itself the headline: the PR isn't close, and that belongs in the TLDR.
 
+The reachability clause exists because it was learned the hard way: a `[Blocks merge]` finding shipped about a code path that a kill switch made unreachable in production, and both refuters missed it because the brief only asked about guards and validation. The reviewer caught it after posting and had to downgrade their own label in the thread.
+
+### Measure it before you post it
+
+When a finding's severity turns on a countable fact about production — how many rows a migration deletes, how many accounts a limit affects, how many records lack a field — **write the query and stop for the number before assembling the draft.** If your partner has read-only production access this takes minutes, and it settles what a paragraph of reasoning can't. Hand them the exact query and say what each result would mean.
+
+A measured finding changes label rather than tone: zero affected rows demotes a `[Blocks merge]` to a `[Follow-up]` explicitly marked future-proofing, and a non-zero count promotes a hypothetical into the verdict with a number attached. Never post the query as a *request* when the answer would change your own label — that hands the reviewer's job to the author. On one migration review, a blocker resting on "expected to affect ~0 rows" became a measured no-op — and the review came out half as long.
+
+---
+
+# Re-reviews: the round-N path
+
+**Round 1 asks whether the change is right. Round N asks three questions and nothing else:** did each of the previous items actually close, does the new code introduce anything new, and did anything shift underneath the reviewer. A full re-audit every round re-raises settled items, makes the author a moving target, and teaches them that a fix earns the same wall of text as no fix. Round N should be visibly shorter than round 1 — that's the signal the fixes worked.
+
+Steps 1, 4, 5, the labels, the lenses, and the gates are unchanged. Three things change.
+
+## 1. The range is the delta, not the PR
+
+Run the engine on `<last-reviewed commit_id>..<headRefOid>` — the code the reviewer hasn't seen. Its brief gains one line:
+
+> This is a re-review. Only the commits in this range are new to the reviewer; do not report anything outside it.
+
+**Treat the fix as new code.** Fixes carry a higher defect rate than original code — written narrowly, under pressure, against a described symptom. The delta gets a real review, not a glance.
+
+**Check what moved underneath.** Read the commit list in the range: a base-branch merge with no new branch commits means the review is about merge integrity (conflict resolution, migration ordering, whether the merge pulled in code that changes an earlier finding), not about the feature. A **force-push** is different again — prior inline comments may be orphaned and the range may be meaningless. When the branch was rewritten, when new files or behavior appeared, or when the base moved a long way, say so and re-run the full round-1 pipeline.
+
+## 2. Closure is verified, not accepted
+
+**"Addressed" is the cheapest claim in software and the most expensive to take on faith.** Dispatch one verifier per previous item — this is where the verification chain earns the most for the least, and it replaces the full audit rather than adding to it:
+
+> The reviewer previously raised this on PR #<N>: "`<the original finding>`" at `<file>:<line>`.
+>
+> The author says it is fixed. At commit `<HEAD_SHA>`, determine whether the described *behavior* is actually fixed — not whether the cited line changed. Read the code and whatever it calls.
+>
+> Return `closed: true|false`, the code you based it on, and one sentence. If the change addresses the symptom described but leaves the underlying behavior intact, return `closed: false` and say what still happens.
+
+The last clause is the round-N failure mode worth naming: the fix that satisfies the sentence the reviewer wrote rather than the problem they meant. Verify behavior, never the line.
+
+Also re-check any finding whose premise the delta may have invalidated — a base merge can close a finding nobody touched, and can open one nobody wrote.
+
+## 3. Unresolved items go back in their own threads
+
+- **Still open** → a reply in that finding's existing inline thread. Never restate it in a fresh body: that fragments the conversation away from where the author is already replying. One real PR accumulated four bottom comments across four rounds while the author's own discussion lived in the inline threads.
+- **New** → a new inline comment, labeled as in round 1.
+- **Closed** → one line in the body ledger. Confirmed closed and nothing else; a paragraph re-explaining what you had wrong last round costs the author more than it's worth.
+
+The round-N body is the ledger and nothing more:
+
+```
+**Verdict:** <Approving | Not blocking — but read the one thing | Needs a fix before this merges>
+**To approve:** <what's left — or "nothing; approving">
+**Closed since <SHA>:** <one line per item, each verified>
+**Still open:** <one line per item, pointing at its thread>
+**New in this range:** <one line per new finding, pointing at its inline comment>
+**Verified:** <how, at which SHA>
+**Scope:** <the delta range, and what it deliberately doesn't re-cover>
+```
+
+Credit still applies, and round N is where it's most earned: name the fix that went beyond what was asked, and take corrections plainly when the author was right. **Budget: half of round 1** — under roughly 1,500 characters of body, since the findings live in threads. If a round-N body approaches round-1 length, either the branch was rewritten (then it's a fresh round 1, and say so) or you're re-auditing.
+
 ---
 
 # The Review Itself
 
-## The one architectural rule
+## The output contract
 
-**The lenses are how you look. The findings list is where everything goes.**
-
-The failure this rule exists to prevent: an issue seen through two lenses becomes two entries, and a reader counting problems gets the wrong number. In a real 13,000-character review, one issue appeared three times — once as a user-facing consequence, once as a labeled technical finding, once as a decision to ratify — and the middle one opened with "Covered above." Three entries, one issue, and no way for the author to tell.
-
-So: **one issue, one entry.** The product consequence and the code location belong in the same finding, not in two places that each tell half of it. If you're about to write "covered above," "as noted," or "see below," you already wrote the entry — delete the duplicate.
+- **The body has exactly four parts, in order:** the TLDR, one-to-two sentences of specific credit, the findings that can't be anchored inline, the numbered questions.
+- **Body under 2,500 characters. At most 5 posted findings total** (body + inline). If more than five survive the pipeline, either the PR isn't close — say that in the verdict, one line per finding — or you're padding: cut from the bottom. Sunk pipeline cost is not a reason to post a finding.
+- **One bundled polish entry is allowed, and counts as one finding.** A design-heavy PR legitimately produces many small items — a label with jargon, inconsistent spacing, a missing empty state, no loading indicator — and forcing them into five slots either drops real ones or bundles them silently. Collect them as a short checklist in a single comment titled `[Polish]`, on the most relevant line. Anything with a behavioral consequence stays its own entry; this is for items whose only cost is feel. If the checklist runs past about eight lines, the PR needs a design pass, not a review comment — say that instead.
+- **Conclusions only — the pipeline never appears in the posted review.** No agent counts, no verification narration ("I had two agents try to break this"), no dropped-findings accounting, no methodology in the `Verified:` line. If a finding needs a paragraph arguing why it *isn't* blocking, that's a finding arguing for its own deletion — cut it, or ask a one-line question.
+- **One issue, one entry.** An issue seen through two lenses is still one entry, carrying both the product consequence and the code location. The failure this prevents: in one real 13,000-character review, a single issue appeared three times — once as a user-facing consequence, once as a labeled technical finding, once as a decision — and the middle one opened with "Covered above." If you're about to write "covered above," "as noted," or "see below," you already wrote the entry. Delete the duplicate.
 
 ## The TLDR — first thing in the body, always
 
-Not optional. Five lines, fixed shape, every number already known by the time you write it:
+Not optional. Fixed shape, every number already known by the time you write it:
 
 ```
-**Verdict:** <Approving | Not blocking — but read #1 | Needs a fix before this merges>
-**Counts:** Blocks merge <n> · Fix before ship <n> · Your call <n> · Follow-up <n>
-**The one thing:** <the single finding you'd want read if they read nothing else, with file:line>
+**Verdict:** <Approving | Not blocking — but read the one thing | Needs a fix before this merges>
+**To approve:** <the 1-3 things that must happen first, plain English — or "nothing; approving">
+**The one thing:** <the single finding you'd want read if they read nothing else>
 **Verified:** <ran the branch, clicked X | diff only, no click-through> · <tests re-run or not>
 **Scope:** <repos and commit range this covers, and what it deliberately doesn't>
 ```
 
-`The one thing` is the load-bearing line. It forces a single pick out of everything the pipeline produced — if you can't choose, the review isn't finished thinking yet.
+`To approve:` is the judgment line — the explicit contract for what unblocks your approval, and the sentence most reviewers deliver verbally and never write down. If it can't be written in one line, the review isn't finished thinking. `The one thing:` forces a single pick out of everything the pipeline produced.
+
+**TLDR lines are plain English.** Name things by what they do ("the reconcile migration," "the consent picker"), not by filename or timestamped identifier — exact `file:line` anchors live in the findings, where a reader can act on them.
 
 Without this, reviews open with round context and paragraphs of praise, and the first actionable item lands past the halfway mark. Measured on real reviews: 58% and 62% of the text sat ahead of the first labeled finding.
 
-## The findings — one list, one entry per issue
+## The findings — one list, three labels
 
 Ordered by label, then by how many users the path touches. Not by lens, not by discovery order.
 
@@ -198,21 +282,35 @@ Ordered by label, then by how many users the path touches. Not by lens, not by d
 |---|---|---|
 | `[Blocks merge]` | user-facing bug, security hole, or data-loss path on code that will run | survived two refuters in Step 5 |
 | `[Fix before ship]` | real defect, but bounded — behind a flag that's off, or a path customers reach rarely | holds the flag flip, not the merge |
-| `[Your call]` | not a defect. The code quietly made a product decision and you're the one who should make it | names the alternative *and* what ships if nobody answers |
 | `[Follow-up]` | real, worth a ticket, not worth holding anything | — |
 
 Each entry:
 
 - **Opens with one bolded sentence naming the user-visible consequence** — not the mechanism. "Single-account tokens never bind, so a later invite can move a live session" beats "`account_id` stays NULL on the fallback path."
 - Then the mechanism, with **the full `file.ext:line`**. Never a bare `:166` continuing from the previous sentence — a reader scanning can't resolve it, and an inline comment can't anchor to it.
+- Then the ask: the outcome you want, not the implementation.
 - **Technical findings are attributed to the AI that found them** — "Claude flagged…". The author needs to know which comments came from a product owner's judgment versus a subagent's diff read in order to weigh them correctly. Product and design findings are yours and don't get the attribution.
-- **`[Your call]` entries** phrase it as: *"If [condition], this [does X] instead of [named alternative] — is X what we want?"* Always name the alternative; a decision can't be weighed against nothing. Always state what ships if nobody answers, because that's the real default.
 
 **Do NOT:**
 - Nitpick code style — linters handle it
 - Rewrite the implementation — describe the outcome you want, let them pick the approach
 - Post anything that didn't clear Step 4
 - Restate a finding that already appears in the list under a different lens
+
+## Decisions — made at the draft gate, never posted as an open category
+
+The decisions pass reports to the **internal block**, one line each:
+
+```
+D1 — <when X, the code does Y instead of Z>. Silence ships Y.
+```
+
+**Your human partner decides at the draft gate.** Their pick becomes one of:
+
+- **A directive finding in their own product voice**, labeled by what it gates — "Default the missing platform field to our only supported value rather than deleting the row; a missing label shouldn't drop a subscriber out of a live audience."
+- **A numbered question** — only when the right answer depends on information the author has (data shape, customer context, operational constraints) that the reviewer doesn't.
+
+**Never post a "your call" label.** On a review signed by the reviewer, "your" reads as the *author's* call — and these calls aren't theirs. A product decision posted as an open shrug is the decision being made by whoever ignores it. Earlier versions of this skill posted them as a fourth label; authors read them as optional and answered none.
 
 ## The four lenses — how you find things, not how you organize them
 
@@ -247,6 +345,8 @@ Evaluate from the end user's perspective — `[YOUR_USERS]`. Not the engineer's.
 
 **Standard:** be specific. Say what would make it better and why it matters to the user. "Feels off" is not a review comment.
 
+**No Lens 2 finding without a click-through.** Rendering is the only evidence for this lens; a diff can show a missing state but never how the thing looks. So when a PR changes rendered surface, say so up front and ask your partner to run it before the draft is assembled — their findings are primary input, and the pipeline runs in the meantime. Without a click-through, everything here is a question and the TLDR says `diff only`. Claiming a design finding from source is the one way this skill can be confidently wrong in the area the product owner is the actual authority on.
+
 ### Lens 3: Code and technical (AI-assisted)
 
 Survivors of Steps 3-5 only. Nothing skips verification.
@@ -258,14 +358,15 @@ Survivors of Steps 3-5 only. Nothing skips verification.
 - Hardcoded values that should be configurable
 - Missing test coverage for critical paths — including tests whose name claims more than the assertion checks
 - Deploy-order and migration-sequencing hazards, which are user-facing even though they look like infrastructure
+- Whether CI actually executed the changed code. A green check on a suite that never runs the changed path is not coverage.
 
 ### Lens 4: Analytics and event tracking
 
 "If it's not tracked, we can't measure adoption" applies to every new user flow, feature surface, or meaningful state change.
 
-**Coverage** → usually a `[Your call]` or `[Follow-up]` entry, framed as a product question: "How will we know whether customers actually use this once it ships?" Reference your event catalog (`[YOUR_ANALYTICS]`). For `[STRATEGIC_FEATURES]`, assume funnel-level tracking is needed unless the PR explicitly deprioritizes it.
+**Coverage** → usually a question or a `[Follow-up]`, framed as a product question: "How will we know whether customers actually use this once it ships?" Reference your event catalog (`[YOUR_ANALYTICS]`). For `[STRATEGIC_FEATURES]`, assume funnel-level tracking is needed unless the PR explicitly deprioritizes it. **A new event that never reaches the catalog is a finding too** — if your repo keeps one, it should be appended in the same PR that ships the event.
 
-**Implementation** → findings, attributed to the AI. Adjust the conventions to your own, but keep them *checkable* — vague guidance produces vague review comments:
+**Implementation** → findings, attributed to the AI. If your team template (`[TEAM_TEMPLATE]`) already documents these conventions, read them there rather than duplicating them here — two copies drift. A checkable baseline if you have none:
 - **Naming:** one casing and one grammar, enforced. A worked example: `snake_case`, `noun_verb_past_tense` (`block_created`, not `clickCreateBlock`), surface-prefixed when ambiguous.
 - **Properties:** IDs as strings (cast when numeric); booleans prefixed `has_`/`is_`/`can_`/`was_`; enum-like values as typed unions rather than scattered boolean flags.
 - **Safety:** events go through your own wrapper, never the raw vendor SDK — the wrapper is where the try/catch lives. Never wrap a primary user action in a try/catch that also handles analytics failure. Fire-and-forget: `track(...); doTheThing()`.
@@ -292,17 +393,33 @@ If a question is really a finding, make it a finding. Keep this list short — i
 
 The draft you show opens with this. It is not part of the review and is stripped before any request goes out.
 
+**Format: one fact per line, no column alignment, no hanging indents.** This is read in a terminal where every line wraps — padded labels and continuation-indents shred on the first wrap and the block becomes unreadable. Use short bold labels and bullets, and let lines wrap naturally.
+
 ```
 --- FOR YOU, NOT POSTED ---
-Path:                  <full pipeline | short — <n> lines, read directly, no engine>
-Engine merge verdict:  <Yes | No | With fixes> — <the engine's reasoning, verbatim>   (n/a on short path)
-Findings dropped:      <n> failed verification — <one line each: the claim, then what the verifier found instead>
-Contested blockers:    <finding> — 1 of 2 refuters disagreed: <their reasoning>
-Blockers unattacked:   <n — only if the Step 5 cap was hit>
-Lens 1 yield:          <n findings | nothing surfaced — flag if the diff is user-facing>
-Inline vs body:        <n> anchored inline, <n> in body because their line isn't in the diff
+
+**Round** — 1, or N reviewing <SHA>..<head> (<n> commits; base-merge-only | force-push | new work)
+**Path** — full pipeline, or short: <n> lines read directly
+**Engine verdict** — <Yes | No | With fixes>: "<reasoning, verbatim>"
+
+**Decisions — need your pick before this posts**
+- D1 — <when X, the code does Y instead of Z>. Silence ships Y.
+- D2 — …
+
+**Closure check** (round N only)
+- <item> → closed, verified at <file:line>
+- <item> → NOT closed: <what still happens>
+
+**Dropped** — <the claim> → <what the verifier found instead>
+**Contested** — <finding>: 1 of 2 refuters disagreed — <their reasoning>
+**Blockers unattacked** — <n, only if the Step 5 cap was hit>
+**Cut for budget** — <survived but didn't make the top 5>
+**Lens 1 yield** — <n findings, or nothing — flag if the diff is user-facing>
+**Placement** — <n> inline · <n> body (line not in diff) · <n> replies in existing threads
 ---
 ```
+
+Numbered decisions (`D1`, `D2`, …) so your partner can answer "D1 revert, D2 fine, D3 ship it" in one line. Anything with no pick left to make doesn't belong in this block.
 
 Every line is something the reviewer needs in order to weigh approval and cannot get from the posted review.
 
@@ -313,10 +430,10 @@ Every line is something the reviewer needs in order to weigh approval and cannot
 ## Step 6: Voice
 
 - **Direct. No hedging, no fluff, no trailing summary** of what the review covered.
-- **Praise: two sentences, maximum.** Accurate praise earns trust, and the engine is told to keep its Strengths section short for this reason. But when 60% of a review sits ahead of the first actionable item — mostly praise and round context — a real fix ends up below the fold. Lead with the TLDR; put the credit in a line, not three paragraphs.
-- **Suggestions over mandates.** Product feedback as questions.
+- **Credit: one to two sentences — required, and never more.** Name the specific thing done well: a design choice, a reasoning comment that saved you time, a correction you're taking. Generic praise is worse than none. Zero is also a failure mode: a review that opens on a defect with nothing acknowledged reads as adversarial, and on round 1 of a PR with genuinely good work in it, that's simply inaccurate. But when 60% of a review sits ahead of the first actionable item — mostly praise and round context — a real fix ends up below the fold.
+- **Suggestions over mandates.** Product feedback as questions, except decided decisions, which are directives.
 - **Skip anything a linter would catch.**
-- **On a round-2-or-later review**, the reader wants what changed since last round and what's still open. Confirm the previous round's items closed in one line each. Don't re-litigate your own earlier reasoning — a paragraph explaining what you had backwards last time costs the author more than it's worth.
+- **On a round-2-or-later review**, see the round-N path — the delta is the scope, closures are verified, and open items go back in their own threads. Don't re-litigate your own earlier reasoning.
 - **Disclose the tooling:** "I used Claude to help me review the code changes here." Reviewing someone's work with an AI and not saying so is the kind of thing that only has to be discovered once.
 
 ## Step 7: Post one review, with findings on the lines they're about
@@ -332,7 +449,7 @@ gh api --method POST repos/<org>/<repo>/pulls/<N>/reviews --input review.json
 ```json
 {
   "event": "COMMENT",
-  "body": "<TLDR, then any finding that can't be anchored, then questions>",
+  "body": "<TLDR, credit, then any finding that can't be anchored, then questions>",
   "comments": [
     { "path": "src/controllers/authorizations_controller.rb",
       "line": 165, "side": "RIGHT",
@@ -343,12 +460,18 @@ gh api --method POST repos/<org>/<repo>/pulls/<N>/reviews --input review.json
 
 **Inline** — every finding whose `file:line` is in this PR's diff. Most of them, since Step 4 already made the verifier cite the line it confirmed against.
 
-**Body** — the TLDR, the questions, and any finding pointing at a line the diff doesn't touch. Those are real and often important: a finding about a file the PR never modified is frequently the whole point of the finding. It cannot be anchored; it goes in the body.
+**Body** — the TLDR, the credit, the questions, and any finding pointing at a line the diff doesn't touch. Those are real and often important: a finding about a file the PR never modified is frequently the whole point of the finding. It cannot be anchored; it goes in the body.
 
-Two mechanics that will bite:
+Three mechanics that will bite:
 
 - `side: "RIGHT"` is the post-change line. **Check every target line against `gh pr diff` before adding it inline** — an out-of-diff anchor rejects the entire call, so one bad line loses every comment rather than just its own. Demote anything you can't place.
 - One atomic call means you cannot post half a review. That makes the draft the only place your partner can catch anything.
+- **Thread replies are a separate call.** The reviews endpoint can't reply to an existing thread, so round-N follow-ups on still-open items post individually, after the review lands. Count them in the draft so they're approved too:
+
+```bash
+gh api --method POST repos/<org>/<repo>/pulls/<N>/comments \
+  --field body='…' --field in_reply_to=<comment_id>
+```
 
 **Multi-repo: each finding is posted once, in the repo where the fix lands.** Two PRs on the same ticket, posted 28 seconds apart, once carried the same four findings between them — so the author read each one twice and had to work out whether it was one ask or two. Put the finding where the fix goes; in the other PR, one line pointing at it.
 
@@ -356,18 +479,15 @@ Two mechanics that will bite:
 
 Separate, and neither is ever inferred:
 
-1. **Post the review?** Show the complete assembled draft first — the internal block, the body as it will render, and a list of `path:line → label + first line` for each inline comment. Your partner answering a question *about* the draft is not approval to post it.
-2. **Formally approve the PR?** A separate ask, always. Never approve unless the answer to this specific question was yes.
+1. **Post the review?** Show the complete assembled draft first — the internal block, the body as it will render, a list of `path:line → label + first line` for each inline comment, and on round N each thread reply with the thread it answers. Your partner answering a question *about* the draft is not approval to post it. If the internal block lists decisions, get their picks before assembling the final draft.
+2. **Which sign-off?** `COMMENT`, `REQUEST_CHANGES`, or `APPROVE` — your partner names it, every time. All three are theirs to grant, not yours to infer: approving signs off on someone else's work, and requesting changes formally blocks the PR and has to be dismissed to clear. **Default to `COMMENT`** — a review whose findings all landed inline doesn't need a blocking state to be read. Recommend `REQUEST_CHANGES` when a `[Blocks merge]` finding survived, and say why in one line.
 
-Ask as one question with two parts: *"Post it? And comments only, or approve too?"*
+Ask as one question with two parts: *"Post it? And comment, request changes, or approve?"*
 
-Then, and only then — strip the internal block first:
+Then, and only then — strip the internal block and set `event` to what they named:
 
 ```bash
-# gate 1
 gh api --method POST repos/<org>/<repo>/pulls/<N>/reviews --input review.json
-# gate 2, only on an explicit yes:
-gh pr review <N> --repo <org>/<repo> --approve
 ```
 
 ## Global Rules
@@ -379,6 +499,7 @@ gh pr review <N> --repo <org>/<repo> --approve
 - **Never post or approve without its own explicit yes.** Two gates, no inference. Approval is a named human's sign-off on someone else's work; it isn't yours to grant by implication. (This rule is here because it was learned the hard way — a pair of stacked PRs approved without a go, both of which had to be dismissed.)
 - **The merge verdict and the dropped findings go to your human partner, never to GitHub.** Always.
 - **Never claim more verification than happened.** If you read the diff but didn't run the branch, the review must not imply a click-through, and the TLDR's `Verified:` line must say `diff only`.
+- **Measure what's countable** before you label it. A number changes a finding's tier; a paragraph of reasoning doesn't.
 - **Disclose every cap and drop** in the internal block. A silent omission reads as coverage.
 - **All PRs on the ticket before any comment on any of them.** The cross-repo half of a change is where confident wrong comments come from.
 - **Don't pad.** Three real findings beats three real findings plus nine nits. Volume trains people to skim — in practice the most useful review is usually the shortest one.
